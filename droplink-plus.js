@@ -1,6 +1,6 @@
 /**
  * DropLink Plus Extension
- * Fixed: Waiting pipeline optimization for stable sync after PeerJS registers online state
+ * Fixed: Persistent Anti-Refresh Storage for Chats & QR Auto-Pipeline Initialization
  */
 
 // 1. DYNAMIC QR CODE LIBRARY INJECTION
@@ -75,7 +75,6 @@ function generateQRCode(roomCode) {
 
   qrContainer.innerHTML = ""; 
 
-  // Direct deployment routing link builder
   const connectionURL = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
 
   new QRCode(qrContainer, {
@@ -105,7 +104,42 @@ function toggleQRDisplay() {
   }
 }
 
-// 3. SECURE RECOVERY ENGINE (Ensures own peer is ready before connecting)
+// 3. PERSISTENT STORAGE CHAT TRACKING PATTERN
+window.addEventListener('messageSaved', (e) => {
+  const data = e.detail;
+  let history = [];
+  try {
+    history = JSON.parse(localStorage.getItem('droplink_chat_history')) || [];
+  } catch(err) { history = []; }
+
+  history.push(data);
+  localStorage.setItem('droplink_chat_history', JSON.stringify(history));
+});
+
+function loadPersistedChatHistory() {
+  let history = [];
+  try {
+    history = JSON.parse(localStorage.getItem('droplink_chat_history')) || [];
+  } catch(err) { history = []; }
+
+  if (history.length === 0) return;
+
+  console.log("Restoring Chat Log Stream... Found elements count:", history.length);
+  
+  history.forEach(msg => {
+    if (msg.type === 'text') {
+      if (typeof addTextBubble === 'function') {
+        addTextBubble(msg.text, msg.isMine, true);
+      }
+    } else if (msg.type === 'file') {
+      if (typeof addFileBubble === 'function') {
+        addFileBubble(msg.id, msg.name, msg.size, msg.isMine, null, true);
+      }
+    }
+  });
+}
+
+// 4. SECURE RECOVERY ENGINE
 function saveActiveSession(peerId, targetPeerId) {
   localStorage.setItem('droplink_my_id', peerId);
   if (targetPeerId) {
@@ -115,6 +149,7 @@ function saveActiveSession(peerId, targetPeerId) {
 
 function clearSession() {
   localStorage.removeItem('droplink_target_id');
+  localStorage.removeItem('droplink_chat_history'); // Wipe memory purely on direct disconnection click
 }
 
 function runSessionRecoveryPipeline() {
@@ -122,43 +157,37 @@ function runSessionRecoveryPipeline() {
   const scanJoinCode = urlParams.get('join');
 
   if (scanJoinCode) {
-    // URL parametric stack clean to prevent refresh loops
     window.history.replaceState({}, document.title, window.location.pathname);
     
     const joinInput = document.getElementById('join-input');
     if (joinInput) {
       joinInput.value = scanJoinCode;
-      console.log("QR Scan detected, trigger automated pipeline sequence for room:", scanJoinCode);
       if (typeof joinPeer === 'function') joinPeer();
     }
   } else {
-    // Local storage persistence recovery path
     const savedTarget = localStorage.getItem('droplink_target_id');
     if (savedTarget && typeof joinPeer === 'function') {
       const joinInput = document.getElementById('join-input');
       if (joinInput) {
         joinInput.value = savedTarget;
-        console.log("Persistent context reload matched, auto reconnecting to:", savedTarget);
         joinPeer();
       }
     }
   }
 }
 
-// 4. PIPELINE EVENTS LISTENERS INTERCEPTIONS
+// 5. INTERCEPTION EVENTS & SYNC LIFECYCLE HOOKS
 window.addEventListener('peerReady', (e) => {
   const localizedMyId = e.detail.myId;
   localStorage.setItem('droplink_my_id', localizedMyId);
   generateQRCode(localizedMyId);
   
-  // CRITICAL FIX: Jab system completely ready/online bolega, tabhi call execute hoga.
   setTimeout(() => {
     runSessionRecoveryPipeline();
   }, 300);
 });
 
 window.addEventListener('load', () => {
-  // Hook openChatScreen to preserve state values safely
   if (typeof openChatScreen === 'function') {
     const originalOpenChat = openChatScreen;
     window.openChatScreen = function(peerId, isIncoming) {
@@ -166,15 +195,16 @@ window.addEventListener('load', () => {
       if (typeof myId !== 'undefined') {
         saveActiveSession(myId, peerId);
       }
+      // Re-render local log instances immediately inside chat UI panels
+      loadPersistedChatHistory();
     };
   }
 
-  // Hook disconnect parameters
   if (typeof disconnectPeer === 'function') {
     const originalDisconnect = disconnectPeer;
     window.disconnectPeer = function() {
-      originalDisconnect();
       clearSession();
+      originalDisconnect();
     };
   }
 });
