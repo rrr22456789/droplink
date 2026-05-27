@@ -1,6 +1,6 @@
 /**
  * DropLink Plus Extension
- * Implements: Anti-Disconnect Session Persistence & Dynamic Scan-to-Connect QR Code Generation
+ * Fixed: Waiting pipeline optimization for stable sync after PeerJS registers online state
  */
 
 // 1. DYNAMIC QR CODE LIBRARY INJECTION
@@ -14,11 +14,7 @@
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Inject QR Elements into layout without structural modification
   setupQRUI();
-  
-  // Verify and execute state recovery patterns on layout loading
-  checkSessionRecovery();
 });
 
 // 2. QR MODULE INTERACTION WRAPPER
@@ -29,7 +25,6 @@ function setupQRUI() {
   const card = cardLabel.parentElement;
   const copyRow = card.querySelector('.copy-row');
 
-  // Generate container layout wrapper
   const qrWrapper = document.createElement('div');
   qrWrapper.id = 'qr-wrapper';
   qrWrapper.style.cssText = `
@@ -63,7 +58,6 @@ function setupQRUI() {
   
   card.insertBefore(qrWrapper, copyRow);
 
-  // Append functional action trigger node inside primary row 
   if (copyRow) {
     const qrBtn = document.createElement('button');
     qrBtn.className = 'btn btn-ghost btn-sm';
@@ -79,9 +73,9 @@ function generateQRCode(roomCode) {
   const qrContainer = document.getElementById('qrcode');
   if (!qrContainer) return;
 
-  qrContainer.innerHTML = ""; // Flush previous nodes
+  qrContainer.innerHTML = ""; 
 
-  // Setup contextual lookup redirect address string
+  // Direct deployment routing link builder
   const connectionURL = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
 
   new QRCode(qrContainer, {
@@ -111,7 +105,7 @@ function toggleQRDisplay() {
   }
 }
 
-// 3. PERSISTENT STATE ARCHITECTURE (ANTI-REFRESH)
+// 3. SECURE RECOVERY ENGINE (Ensures own peer is ready before connecting)
 function saveActiveSession(peerId, targetPeerId) {
   localStorage.setItem('droplink_my_id', peerId);
   if (targetPeerId) {
@@ -123,46 +117,59 @@ function clearSession() {
   localStorage.removeItem('droplink_target_id');
 }
 
-function checkSessionRecovery() {
+function runSessionRecoveryPipeline() {
   const urlParams = new URLSearchParams(window.location.search);
   const scanJoinCode = urlParams.get('join');
 
   if (scanJoinCode) {
-    // URL Cleanup intercept pattern to prevent looping parameters
+    // URL parametric stack clean to prevent refresh loops
     window.history.replaceState({}, document.title, window.location.pathname);
     
     const joinInput = document.getElementById('join-input');
     if (joinInput) {
       joinInput.value = scanJoinCode;
-      setTimeout(() => {
-        if (typeof joinPeer === 'function') joinPeer();
-      }, 1500); // Delayed buffer for peer engine stabilization
+      console.log("QR Scan detected, trigger automated pipeline sequence for room:", scanJoinCode);
+      if (typeof joinPeer === 'function') joinPeer();
     }
   } else {
-    // LocalStorage checking fallback routing context
+    // Local storage persistence recovery path
     const savedTarget = localStorage.getItem('droplink_target_id');
     if (savedTarget && typeof joinPeer === 'function') {
       const joinInput = document.getElementById('join-input');
       if (joinInput) {
         joinInput.value = savedTarget;
-        setTimeout(() => { joinPeer(); }, 1200);
+        console.log("Persistent context reload matched, auto reconnecting to:", savedTarget);
+        joinPeer();
       }
     }
   }
 }
 
-// 4. MAIN GLOBAL INTERACTION TRAPS (SAFE INJECTION REWRITING)
+// 4. PIPELINE EVENTS LISTENERS INTERCEPTIONS
+window.addEventListener('peerReady', (e) => {
+  const localizedMyId = e.detail.myId;
+  localStorage.setItem('droplink_my_id', localizedMyId);
+  generateQRCode(localizedMyId);
+  
+  // CRITICAL FIX: Jab system completely ready/online bolega, tabhi call execute hoga.
+  setTimeout(() => {
+    runSessionRecoveryPipeline();
+  }, 300);
+});
+
 window.addEventListener('load', () => {
-  // Override primary layout transition trigger to hook memory pipeline
+  // Hook openChatScreen to preserve state values safely
   if (typeof openChatScreen === 'function') {
     const originalOpenChat = openChatScreen;
     window.openChatScreen = function(peerId, isIncoming) {
       originalOpenChat(peerId, isIncoming);
-      saveActiveSession(myId, peerId);
+      if (typeof myId !== 'undefined') {
+        saveActiveSession(myId, peerId);
+      }
     };
   }
 
-  // Intercept disconnect call loop logic
+  // Hook disconnect parameters
   if (typeof disconnectPeer === 'function') {
     const originalDisconnect = disconnectPeer;
     window.disconnectPeer = function() {
@@ -170,15 +177,4 @@ window.addEventListener('load', () => {
       clearSession();
     };
   }
-  
-  // Polling logic pipeline check to bind dynamically once connection object exposes
-  const bindInterval = setInterval(() => {
-    if (typeof peer !== 'undefined' && peer !== null) {
-      peer.on('open', id => {
-        generateQRCode(id);
-        localStorage.setItem('droplink_my_id', id);
-      });
-      clearInterval(bindInterval);
-    }
-  }, 200);
 });
