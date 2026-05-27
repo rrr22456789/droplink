@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DropLink — Secure P2P Transfer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght+400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -795,7 +795,7 @@ function initPeer() {
     return Array.from({length: 8}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
   };
 
-  // REFRESH CHECK: Purani persistent memory read karo taki room ID fix rahe
+  // REFRESH MEMORY PROTECTION: Room code standard lock pattern
   const savedMyId = localStorage.getItem('droplink_my_id');
   const id = savedMyId ? savedMyId : randomId();
   
@@ -821,6 +821,9 @@ function initPeer() {
     if (navigator.share) document.getElementById('share-btn').style.display = '';
     document.getElementById('share-btn').disabled = false;
     setStatus('online', 'Ready — ' + id);
+
+    // Dynamic custom event bubble up drop for stable extension attachment
+    window.dispatchEvent(new CustomEvent('peerReady', { detail: { myId: id } }));
   });
 
   peer.on('connection', incomingConn => {
@@ -906,7 +909,7 @@ function autoResize(el) {
 }
 
 // ───────────────────────────────────────────────
-// UI — BUBBLES (UPDATED WITH COPY BUTTON)
+// UI — BUBBLES
 // ───────────────────────────────────────────────
 function addTextBubble(text, isMine) {
   removeEmptyState();
@@ -1027,7 +1030,6 @@ function addSystemMsg(text, success=false) {
   area.appendChild(el);
   area.scrollTop = area.scrollHeight;
 }
- McKinney = null;
 function removeEmptyState() { const es = document.getElementById('empty-state'); if (es) es.remove(); }
 function openChatScreen(peerId, isIncoming) {
   document.getElementById('home-screen').classList.remove('active');
