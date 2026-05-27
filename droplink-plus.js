@@ -1,33 +1,35 @@
 /**
- * DropLink Plus - Extension for QR Code & Refresh-Resistant Connections
- * Main HTML script ko bina corrupt kiye background enhancements manage karne ke liye.
+ * DropLink Plus Extension
+ * Implements: Anti-Disconnect Session Persistence & Dynamic Scan-to-Connect QR Code Generation
  */
 
-// Dynamic QR Code Library Injection
+// 1. DYNAMIC QR CODE LIBRARY INJECTION
 (function injectQRCodeLib() {
+  if (document.getElementById('qr-lib-src')) return;
   const script = document.createElement('script');
+  script.id = 'qr-lib-src';
   script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
   script.async = true;
   document.head.appendChild(script);
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  // UI me QR code container inject karna (Your Room Code card ke andar)
+  // Inject QR Elements into layout without structural modification
   setupQRUI();
   
-  // Auto Reconnect Check on Refresh
+  // Verify and execute state recovery patterns on layout loading
   checkSessionRecovery();
 });
 
-// 1. QR CODE LOGIC
+// 2. QR MODULE INTERACTION WRAPPER
 function setupQRUI() {
-  const cardLabel = document.querySelector('.card-label'); // First card target
+  const cardLabel = document.querySelector('.card-label'); 
   if (!cardLabel) return;
 
   const card = cardLabel.parentElement;
   const copyRow = card.querySelector('.copy-row');
 
-  // QR Code UI structure build karna
+  // Generate container layout wrapper
   const qrWrapper = document.createElement('div');
   qrWrapper.id = 'qr-wrapper';
   qrWrapper.style.cssText = `
@@ -59,10 +61,9 @@ function setupQRUI() {
   qrWrapper.appendChild(qrContainer);
   qrWrapper.appendChild(qrText);
   
-  // Element ko Copy Row ke upar insert karna
   card.insertBefore(qrWrapper, copyRow);
 
-  // Ek dynamic Toggle QR button copy row me add karna
+  // Append functional action trigger node inside primary row 
   if (copyRow) {
     const qrBtn = document.createElement('button');
     qrBtn.className = 'btn btn-ghost btn-sm';
@@ -78,9 +79,9 @@ function generateQRCode(roomCode) {
   const qrContainer = document.getElementById('qrcode');
   if (!qrContainer) return;
 
-  qrContainer.innerHTML = ""; // Purana QR clear karo
+  qrContainer.innerHTML = ""; // Flush previous nodes
 
-  // Current URL ke sath room code attach karke join link banana
+  // Setup contextual lookup redirect address string
   const connectionURL = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
 
   new QRCode(qrContainer, {
@@ -110,7 +111,7 @@ function toggleQRDisplay() {
   }
 }
 
-// 2. REFRESH & RECOVERY LOGIC (Local Storage)
+// 3. PERSISTENT STATE ARCHITECTURE (ANTI-REFRESH)
 function saveActiveSession(peerId, targetPeerId) {
   localStorage.setItem('droplink_my_id', peerId);
   if (targetPeerId) {
@@ -123,25 +124,22 @@ function clearSession() {
 }
 
 function checkSessionRecovery() {
-  // Check URL if launched via QR Scan
   const urlParams = new URLSearchParams(window.location.search);
   const scanJoinCode = urlParams.get('join');
 
   if (scanJoinCode) {
-    // Clear URL query parameters subtly
+    // URL Cleanup intercept pattern to prevent looping parameters
     window.history.replaceState({}, document.title, window.location.pathname);
     
-    // Auto fill and try connect
     const joinInput = document.getElementById('join-input');
     if (joinInput) {
       joinInput.value = scanJoinCode;
-      // Wait for peer init then connect
       setTimeout(() => {
         if (typeof joinPeer === 'function') joinPeer();
-      }, 1500);
+      }, 1500); // Delayed buffer for peer engine stabilization
     }
   } else {
-    // Standard recovery from LocalStorage
+    // LocalStorage checking fallback routing context
     const savedTarget = localStorage.getItem('droplink_target_id');
     if (savedTarget && typeof joinPeer === 'function') {
       const joinInput = document.getElementById('join-input');
@@ -153,9 +151,9 @@ function checkSessionRecovery() {
   }
 }
 
-// Global hooks inject karne ke liye custom listeners interceptor
+// 4. MAIN GLOBAL INTERACTION TRAPS (SAFE INJECTION REWRITING)
 window.addEventListener('load', () => {
-  // Override openChatScreen to preserve state on success connection
+  // Override primary layout transition trigger to hook memory pipeline
   if (typeof openChatScreen === 'function') {
     const originalOpenChat = openChatScreen;
     window.openChatScreen = function(peerId, isIncoming) {
@@ -164,7 +162,7 @@ window.addEventListener('load', () => {
     };
   }
 
-  // Override disconnect to clear session data
+  // Intercept disconnect call loop logic
   if (typeof disconnectPeer === 'function') {
     const originalDisconnect = disconnectPeer;
     window.disconnectPeer = function() {
@@ -173,12 +171,14 @@ window.addEventListener('load', () => {
     };
   }
   
-  // Intercept open status to build QR code automatically
-  if (peer) {
-    peer.on('open', id => {
-      generateQRCode(id);
-      // Agar active node refresh hua tha to state handle karega
-      localStorage.setItem('droplink_my_id', id);
-    });
-  }
+  // Polling logic pipeline check to bind dynamically once connection object exposes
+  const bindInterval = setInterval(() => {
+    if (typeof peer !== 'undefined' && peer !== null) {
+      peer.on('open', id => {
+        generateQRCode(id);
+        localStorage.setItem('droplink_my_id', id);
+      });
+      clearInterval(bindInterval);
+    }
+  }, 200);
 });
