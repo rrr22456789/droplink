@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DropLink — Secure P2P Transfer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght+400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -795,7 +795,6 @@ function initPeer() {
     return Array.from({length: 8}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
   };
 
-  // REFRESH MEMORY PROTECTION: Room code standard lock pattern
   const savedMyId = localStorage.getItem('droplink_my_id');
   const id = savedMyId ? savedMyId : randomId();
   
@@ -822,7 +821,6 @@ function initPeer() {
     document.getElementById('share-btn').disabled = false;
     setStatus('online', 'Ready — ' + id);
 
-    // Dynamic custom event bubble up drop for stable extension attachment
     window.dispatchEvent(new CustomEvent('peerReady', { detail: { myId: id } }));
   });
 
@@ -909,9 +907,9 @@ function autoResize(el) {
 }
 
 // ───────────────────────────────────────────────
-// UI — BUBBLES
+// UI — BUBBLES (UPDATED DATA STRUCTURE SYNC HOOK)
 // ───────────────────────────────────────────────
-function addTextBubble(text, isMine) {
+function addTextBubble(text, isMine, isHistoryLoad = false) {
   removeEmptyState();
   const area = document.getElementById('messages-area');
   const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
@@ -927,6 +925,11 @@ function addTextBubble(text, isMine) {
   `;
   area.appendChild(wrap);
   area.scrollTop = area.scrollHeight;
+
+  // Track event bubble up into the LocalStorage synchronization engine
+  if (!isHistoryLoad) {
+    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { text, isMine, type: 'text' } }));
+  }
 }
 
 function copyToClipboard(id) {
@@ -1004,7 +1007,7 @@ function fmtSize(bytes) {
   if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
   return (bytes/1048576).toFixed(1) + ' MB';
 }
-function addFileBubble(id, name, size, isMine, url) {
+function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false) {
   removeEmptyState();
   const area = document.getElementById('messages-area');
   const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
@@ -1014,6 +1017,16 @@ function addFileBubble(id, name, size, isMine, url) {
   wrap.innerHTML = `<div class="file-bubble ${isMine ? 'mine' : ''}"><div class="file-icon-wrap">${getFileEmoji(name)}</div><div class="file-meta"><div class="file-name">${escHtml(name)}</div><div class="file-size">${fmtSize(size)} ${isMine ? '↑ Sending' : '↓ Receiving'}</div><div class="progress-bar"><div class="progress-fill" id="prog-${id}" style="width:0%"></div></div></div><div id="dl-${id}"></div></div><div class="bubble-time">${time}</div>`;
   area.appendChild(wrap);
   area.scrollTop = area.scrollHeight;
+
+  if (isHistoryLoad && isMine) {
+    updateFileBubbleProgress(id, 100);
+    const sizeEl = wrap.querySelector('.file-size');
+    if (sizeEl) sizeEl.textContent = fmtSize(size) + ' ✅ Done';
+  }
+
+  if (!isHistoryLoad) {
+    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id, name, size, isMine, type: 'file' } }));
+  }
 }
 function updateFileBubbleProgress(id, pct) { const el = document.getElementById('prog-' + id); if (el) el.style.width = pct + '%'; }
 function showDownloadBtn(id, url, name) {
