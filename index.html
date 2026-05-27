@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -278,7 +277,7 @@
     .btn-sm { padding: 8px 16px; font-size: 0.8rem; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-    .copy-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .copy-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
     /* JOIN card */
     .join-input-wrap {
@@ -341,33 +340,6 @@
       color: var(--muted);
     }
     .feat-icon { font-size: 1rem; }
-
-    /* ── QR CODE NEW CARD CUSTOM STYLES ── */
-    .qr-wrapper {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-      margin: 20px 0;
-      padding: 16px;
-      background: var(--bg2);
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      animation: fadeUp 0.4s ease;
-    }
-    .qrcode-box {
-      padding: 10px;
-      background: #ffffff;
-      border-radius: 10px;
-      display: inline-block;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-    .qr-text {
-      font-size: 0.75rem;
-      color: var(--muted);
-      font-family: 'Space Mono', monospace;
-      letter-spacing: 0.05em;
-    }
 
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(24px); }
@@ -451,7 +423,7 @@
       font-size: 0.92rem;
       line-height: 1.5;
       word-break: break-word;
-      white-space: pre-wrap; 
+      white-space: pre-wrap;
       position: relative;
     }
     .bubble.mine {
@@ -712,25 +684,16 @@
       <div class="card">
         <div class="card-label">01 — Your Room Code</div>
         <div class="code-display loading" id="my-code">Generating…</div>
-        
-        <div class="qr-wrapper" id="qr-wrapper">
-          <div class="qrcode-box" id="qrcode"></div>
-          <p class="qr-text">Scan code to connect instantly</p>
-        </div>
-
         <div class="copy-row">
           <button class="btn btn-ghost btn-sm" id="copy-btn" onclick="copyCode()" disabled>
             📋 Copy Code
-          </button>
-          <button class="btn btn-ghost btn-sm" id="toggle-qr-btn" onclick="toggleQRDisplay()" disabled>
-            📱 Show QR
           </button>
           <button class="btn btn-ghost btn-sm" id="share-btn" onclick="shareCode()" disabled style="display:none">
             🔗 Share
           </button>
         </div>
         <p style="font-size:0.78rem; color:var(--muted); margin-top:14px; line-height:1.5">
-          Share this code or QR with anyone. They can scan or enter it to connect instantly.
+          Share this code with anyone. They paste it on the right to connect instantly.
         </p>
       </div>
 
@@ -824,7 +787,7 @@ let myId = '';
 let pendingFiles = {};
 
 // ───────────────────────────────────────────────
-// PEER INIT (UPDATED WITH PERSISTENT STORAGE ID)
+// PEER INIT
 // ───────────────────────────────────────────────
 function initPeer() {
   const randomId = () => {
@@ -832,7 +795,7 @@ function initPeer() {
     return Array.from({length: 8}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
   };
 
-  // CHECK REFRESH PERSISTENCE
+  // REFRESH CHECK: Purani persistent memory read karo taki room ID fix rahe
   const savedMyId = localStorage.getItem('droplink_my_id');
   const id = savedMyId ? savedMyId : randomId();
   
@@ -851,21 +814,13 @@ function initPeer() {
 
   peer.on('open', id => {
     myId = id;
-    localStorage.setItem('droplink_my_id', id); // Keep identity saved
     document.getElementById('my-code').textContent = id;
     document.getElementById('my-code').classList.remove('loading');
     document.getElementById('copy-btn').disabled = false;
     document.getElementById('join-btn').disabled = false;
-    
-    // QR Code generation sequence triggered
-    generateQRCode(id);
-
     if (navigator.share) document.getElementById('share-btn').style.display = '';
     document.getElementById('share-btn').disabled = false;
     setStatus('online', 'Ready — ' + id);
-
-    // Run deep check for automated hook executions
-    checkSessionRecovery();
   });
 
   peer.on('connection', incomingConn => {
@@ -875,14 +830,13 @@ function initPeer() {
   peer.on('error', err => {
     if (err.type === 'peer-unavailable') {
       hideConnecting();
-      clearSession();
-      showToast('❌ Code not found or Peer offline.', 'error');
+      showToast('❌ Code not found. Check and try again.', 'error');
     }
   });
 }
 
 // ───────────────────────────────────────────────
-// CONNECT & EXTRAS
+// CONNECT
 // ───────────────────────────────────────────────
 function joinPeer() {
   const code = document.getElementById('join-input').value.trim().toUpperCase();
@@ -901,10 +855,6 @@ function handleConnection(c, isIncoming) {
     openChatScreen(c.peer, isIncoming);
     setStatus('connected', 'Connected');
     addSystemMsg('🔗 Secure connection established!', true);
-    
-    // Save state details to preserve session state layout 
-    localStorage.setItem('droplink_target_id', c.peer);
-
     c.send(JSON.stringify({ type: 'hello', name: myId }));
   });
 
@@ -916,79 +866,8 @@ function handleConnection(c, isIncoming) {
     addSystemMsg('🔌 Peer disconnected');
     setStatus('online', 'Ready — ' + myId);
     document.getElementById('send-btn').disabled = true;
-    clearSession();
     conn = null;
   });
-}
-
-// ───────────────────────────────────────────────
-// NEW QR ENGINE LOGIC
-// ───────────────────────────────────────────────
-function generateQRCode(roomCode) {
-  const qrBox = document.getElementById('qrcode');
-  const qrBtn = document.getElementById('toggle-qr-btn');
-  if (!qrBox) return;
-
-  qrBox.innerHTML = ""; // Wipe dynamic node structures
-  const scanLink = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
-
-  new QRCode(qrBox, {
-    text: scanLink,
-    width: 140,
-    height: 140,
-    colorDark: "#080b10",
-    colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.H
-  });
-  
-  if (qrBtn) qrBtn.disabled = false;
-}
-
-function toggleQRDisplay() {
-  const wrap = document.getElementById('qr-wrapper');
-  const btn = document.getElementById('toggle-qr-btn');
-  if (!wrap) return;
-
-  if (wrap.style.display === 'none' || wrap.style.display === '') {
-    wrap.style.display = 'flex';
-    btn.innerHTML = '🙈 Hide QR';
-  } else {
-    wrap.style.display = 'none';
-    btn.innerHTML = '📱 Show QR';
-  }
-}
-
-// ───────────────────────────────────────────────
-// SESSION DISCONNECT / RECOVERY HANDLERS
-// ───────────────────────────────────────────────
-function clearSession() {
-  localStorage.removeItem('droplink_target_id');
-}
-
-function checkSessionRecovery() {
-  const params = new URLSearchParams(window.location.search);
-  const codeParam = params.get('join');
-
-  if (codeParam) {
-    // URL cleaning
-    window.history.replaceState({}, document.title, window.location.pathname);
-    const targetInput = document.getElementById('join-input');
-    if (targetInput) {
-      targetInput.value = codeParam.toUpperCase();
-      joinPeer();
-    }
-  } else {
-    // Normal storage fallback re-validation loop
-    const savedTarget = localStorage.getItem('droplink_target_id');
-    if (savedTarget) {
-      const targetInput = document.getElementById('join-input');
-      if (targetInput) {
-        targetInput.value = savedTarget;
-        showToast('🔄 Reconnecting last session...', 'success');
-        joinPeer();
-      }
-    }
-  }
 }
 
 // ───────────────────────────────────────────────
@@ -1027,7 +906,7 @@ function autoResize(el) {
 }
 
 // ───────────────────────────────────────────────
-// UI — BUBBLES WITH SYSTEM CLIPS
+// UI — BUBBLES (UPDATED WITH COPY BUTTON)
 // ───────────────────────────────────────────────
 function addTextBubble(text, isMine) {
   removeEmptyState();
@@ -1056,9 +935,6 @@ function copyToClipboard(id) {
   });
 }
 
-// ───────────────────────────────────────────────
-// BINARY FILE HANDLING STREAM
-// ───────────────────────────────────────────────
 const CHUNK_SIZE = 64 * 1024;
 function sendFiles(files) {
   if (!files || !conn) return;
@@ -1151,8 +1027,8 @@ function addSystemMsg(text, success=false) {
   area.appendChild(el);
   area.scrollTop = area.scrollHeight;
 }
+ McKinney = null;
 function removeEmptyState() { const es = document.getElementById('empty-state'); if (es) es.remove(); }
-
 function openChatScreen(peerId, isIncoming) {
   document.getElementById('home-screen').classList.remove('active');
   document.getElementById('chat-screen').classList.add('active');
@@ -1163,26 +1039,22 @@ function openChatScreen(peerId, isIncoming) {
   document.getElementById('peer-code-display').textContent = peerId;
   showToast(isIncoming ? '✅ Peer connected!' : '✅ Connected!', 'success');
 }
-
 function disconnectPeer() {
   if (conn) { conn.close(); conn = null; }
-  clearSession();
   document.getElementById('chat-screen').classList.remove('active');
   document.getElementById('home-screen').classList.add('active');
   setStatus('online', 'Ready — ' + myId);
   showToast('Disconnected', '');
 }
-
 function toggleDropZone() { document.getElementById('drop-zone').classList.toggle('visible'); }
 function handleDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
 function handleDragLeave(e) { document.getElementById('drop-zone').classList.remove('dragover'); }
 function handleDrop(e) { e.preventDefault(); document.getElementById('drop-zone').classList.remove('dragover'); sendFiles(e.dataTransfer.files); }
 function copyCode() { navigator.clipboard.writeText(myId).then(() => showToast('✅ Code copied!', 'success')); }
-function shareCode() { navigator.share({ title: 'DropLink', text: 'Join my session: ' + myId, url: `${window.location.origin}${window.location.pathname}?join=${myId}` }); }
+function shareCode() { navigator.share({ title: 'DropLink', text: 'Join my session: ' + myId, url: location.href }); }
 function setStatus(state, text) { document.getElementById('status-dot').className = 'status-dot ' + state; document.getElementById('status-text').textContent = text; }
 function showConnecting() { document.getElementById('connecting-overlay').classList.add('active'); }
 function hideConnecting() { document.getElementById('connecting-overlay').classList.remove('active'); }
-
 let toastTimer;
 function showToast(msg, type='') {
   const t = document.getElementById('toast');
@@ -1192,8 +1064,9 @@ function showToast(msg, type='') {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
 window.addEventListener('load', initPeer);
 </script>
+
+<script src="droplink-plus.js"></script>
 </body>
 </html>
