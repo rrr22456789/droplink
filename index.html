@@ -723,6 +723,25 @@
     }
     .download-btn:hover { background: var(--accent); color: #000; }
 
+    .file-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .cancel-transfer-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.72rem;
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .cancel-transfer-btn:hover { border-color: var(--accent2); color: var(--accent2); background: rgba(255,107,53,0.08); }
+    .file-bubble.cancelled { opacity: 0.55; }
+    .file-bubble.cancelled .file-icon-wrap { filter: grayscale(1); }
+
     /* Input bar — always pinned to the bottom of the fixed chat panel,
        never part of the scrolling content, so it can never end up hidden. */
     .input-area {
@@ -1116,6 +1135,7 @@ function handleData(raw) {
   if (msg.type === 'file-meta') { initFileReceive(msg); return; }
   if (msg.type === 'file-chunk') { handleFileChunkMsg(msg); return; }
   if (msg.type === 'file-done') { finalizeFile(msg.fileId); return; }
+  if (msg.type === 'file-cancel') { handleRemoteCancel(msg.fileId, msg.by); return; }
 }
 
 // ───────────────────────────────────────────────
@@ -1176,6 +1196,8 @@ function copyToClipboard(id) {
 }
 
 const CHUNK_SIZE = 64 * 1024;
+let activeTransfers = {}; // fileId -> { cancelled: bool, role: 'send' | 'receive' }
+
 function sendFiles(files) {
   if (!files || !conn) return;
   Array.from(files).forEach(file => sendFile(file));
@@ -1184,23 +1206,26 @@ function sendFiles(files) {
 
 function sendFile(file) {
   const fileId = Math.random().toString(36).substr(2,9);
+  activeTransfers[fileId] = { cancelled: false, role: 'send' };
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   conn.send(JSON.stringify({ type: 'file-meta', fileId, name: file.name, size: file.size, totalChunks, fileType: file.type }));
   const bubbleId = 'file-' + fileId;
-  addFileBubble(bubbleId, file.name, file.size, true, null);
+  addFileBubble(bubbleId, file.name, file.size, true, null, false, fileId);
   const reader = new FileReader();
   let offset = 0;
   let chunkIdx = 0;
   function sendNextChunk() {
+    if (activeTransfers[fileId]?.cancelled) return;
     if (offset >= file.size) {
       conn.send(JSON.stringify({ type: 'file-done', fileId }));
-      updateFileBubbleProgress(bubbleId, 100);
+      markTransferDone(fileId);
       return;
     }
     const slice = file.slice(offset, offset + CHUNK_SIZE);
     reader.readAsArrayBuffer(slice);
   }
   reader.onload = e => {
+    if (activeTransfers[fileId]?.cancelled) return;
     conn.send(JSON.stringify({ type: 'file-chunk', fileId, chunkIdx, data: Array.from(new Uint8Array(e.target.result)) }));
     offset += CHUNK_SIZE;
     chunkIdx++;
@@ -1210,25 +1235,55 @@ function sendFile(file) {
   sendNextChunk();
 }
 
+// Sender stops a transfer that's still in progress
+function cancelSend(fileId) {
+  if (!activeTransfers[fileId] || activeTransfers[fileId].cancelled) return;
+  activeTransfers[fileId].cancelled = true;
+  if (conn) conn.send(JSON.stringify({ type: 'file-cancel', fileId, by: 'sender' }));
+  markTransferCancelled(fileId, '🚫 Cancelled');
+  showToast('File transfer cancelled', '');
+}
+
 function initFileReceive(meta) {
   pendingFiles[meta.fileId] = { name: meta.name, size: meta.size, totalChunks: meta.totalChunks, fileType: meta.fileType, chunks: new Array(meta.totalChunks), received: 0 };
-  addFileBubble('file-' + meta.fileId, meta.name, meta.size, false, null);
+  activeTransfers[meta.fileId] = { cancelled: false, role: 'receive' };
+  addFileBubble('file-' + meta.fileId, meta.name, meta.size, false, null, false, meta.fileId);
 }
+
+// Receiver declines / stops an incoming transfer before or during receiving
+function cancelReceive(fileId) {
+  if (!activeTransfers[fileId] || activeTransfers[fileId].cancelled) return;
+  activeTransfers[fileId].cancelled = true;
+  delete pendingFiles[fileId];
+  if (conn) conn.send(JSON.stringify({ type: 'file-cancel', fileId, by: 'receiver' }));
+  markTransferCancelled(fileId, '🚫 Declined');
+}
+
 function handleFileChunkMsg(msg) {
   const f = pendingFiles[msg.fileId];
-  if (!f) return;
+  if (!f || activeTransfers[msg.fileId]?.cancelled) return;
   f.chunks[msg.chunkIdx] = new Uint8Array(msg.data);
   f.received++;
   updateFileBubbleProgress('file-' + msg.fileId, Math.min(Math.round((f.received / f.totalChunks) * 100), 99));
 }
+
 function finalizeFile(fileId) {
   const f = pendingFiles[fileId];
-  if (!f) return;
+  if (!f || activeTransfers[fileId]?.cancelled) { delete pendingFiles[fileId]; return; }
   const url = URL.createObjectURL(new Blob(f.chunks, { type: f.fileType || 'application/octet-stream' }));
   updateFileBubbleProgress('file-' + fileId, 100);
   showDownloadBtn('file-' + fileId, url, f.name);
   showToast('📥 ' + f.name + ' received!', 'success');
   delete pendingFiles[fileId];
+  delete activeTransfers[fileId];
+}
+
+// The other side hit Cancel / Decline — reflect that on our side of the bubble too
+function handleRemoteCancel(fileId, by) {
+  if (activeTransfers[fileId]) activeTransfers[fileId].cancelled = true;
+  delete pendingFiles[fileId];
+  const label = by === 'sender' ? '🚫 Sender stopped this transfer' : '🚫 Recipient declined this file';
+  markTransferCancelled(fileId, label);
 }
 
 function getFileEmoji(name) {
@@ -1241,20 +1296,25 @@ function fmtSize(bytes) {
   if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
   return (bytes/1048576).toFixed(1) + ' MB';
 }
-function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false) {
+function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false, fileId = null) {
   removeEmptyState();
   const area = document.getElementById('messages-area');
   const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   const wrap = document.createElement('div');
   wrap.className = 'bubble-wrap ' + (isMine ? 'mine' : 'theirs');
   wrap.id = 'wrap-' + id;
-  wrap.innerHTML = `<div class="file-bubble ${isMine ? 'mine' : ''}"><div class="file-icon-wrap">${getFileEmoji(name)}</div><div class="file-meta"><div class="file-name">${escHtml(name)}</div><div class="file-size">${fmtSize(size)} ${isMine ? '↑ Sending' : '↓ Receiving'}</div><div class="progress-bar"><div class="progress-fill" id="prog-${id}" style="width:0%"></div></div></div><div id="dl-${id}"></div></div><div class="bubble-time">${time}</div>`;
+
+  const cancelBtn = (!isHistoryLoad && fileId)
+    ? `<button class="cancel-transfer-btn" id="cancel-${id}" onclick="${isMine ? 'cancelSend' : 'cancelReceive'}('${fileId}')">✕ ${isMine ? 'Cancel' : 'Decline'}</button>`
+    : '';
+
+  wrap.innerHTML = `<div class="file-bubble ${isMine ? 'mine' : ''}"><div class="file-icon-wrap">${getFileEmoji(name)}</div><div class="file-meta"><div class="file-name">${escHtml(name)}</div><div class="file-size" id="size-${id}">${fmtSize(size)} ${isMine ? '↑ Sending' : '↓ Receiving'}</div><div class="progress-bar" id="progwrap-${id}"><div class="progress-fill" id="prog-${id}" style="width:0%"></div></div></div><div class="file-actions" id="actions-${id}">${cancelBtn}<div id="dl-${id}"></div></div></div><div class="bubble-time">${time}</div>`;
   area.appendChild(wrap);
   area.scrollTop = area.scrollHeight;
 
   if (isHistoryLoad && isMine) {
     updateFileBubbleProgress(id, 100);
-    const sizeEl = wrap.querySelector('.file-size');
+    const sizeEl = document.getElementById('size-' + id);
     if (sizeEl) sizeEl.textContent = fmtSize(size) + ' ✅ Done';
   }
 
@@ -1263,10 +1323,40 @@ function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false) {
   }
 }
 function updateFileBubbleProgress(id, pct) { const el = document.getElementById('prog-' + id); if (el) el.style.width = pct + '%'; }
+
+function removeCancelButton(bubbleId) {
+  const btn = document.getElementById('cancel-' + bubbleId);
+  if (btn) btn.remove();
+}
+
+// Sender-side: transfer finished successfully
+function markTransferDone(fileId) {
+  const bubbleId = 'file-' + fileId;
+  updateFileBubbleProgress(bubbleId, 100);
+  const sizeEl = document.getElementById('size-' + bubbleId);
+  if (sizeEl) sizeEl.textContent = sizeEl.textContent.replace('↑ Sending', '✅ Sent');
+  removeCancelButton(bubbleId);
+  delete activeTransfers[fileId];
+}
+
+// Either side: transfer was stopped before completion
+function markTransferCancelled(fileId, label) {
+  const bubbleId = 'file-' + fileId;
+  removeCancelButton(bubbleId);
+  const sizeEl = document.getElementById('size-' + bubbleId);
+  if (sizeEl) sizeEl.textContent = label;
+  const progWrap = document.getElementById('progwrap-' + bubbleId);
+  if (progWrap) progWrap.style.display = 'none';
+  const wrap = document.getElementById('wrap-' + bubbleId);
+  const bubble = wrap?.querySelector('.file-bubble');
+  if (bubble) bubble.classList.add('cancelled');
+}
+
 function showDownloadBtn(id, url, name) {
   const el = document.getElementById('dl-' + id);
   if (el) el.innerHTML = `<a href="${url}" download="${escHtml(name)}" class="download-btn">💾 Save</a>`;
-  const sizeEl = el.closest('.file-bubble')?.querySelector('.file-size');
+  removeCancelButton(id);
+  const sizeEl = document.getElementById('size-' + id);
   if (sizeEl) sizeEl.textContent = sizeEl.textContent.replace('↓ Receiving', '✅ Done');
 }
 function addSystemMsg(text, success=false) {
