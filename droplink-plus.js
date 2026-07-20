@@ -280,6 +280,15 @@ window.addEventListener('peerReady', (e) => {
   }, 300);
 });
 
+// Redraws the transcript from scratch so the panel always matches storage exactly —
+// this is what stops duplicate bubbles from piling up every time a peer reconnects
+// (each reconnect calls openChatScreen again, which used to just keep appending).
+function resetMessagesArea() {
+  const area = document.getElementById('messages-area');
+  if (!area) return;
+  area.innerHTML = '<div class="empty-state" id="empty-state"><div class="empty-icon">💬</div><div>Send a message or drop a file to start</div></div>';
+}
+
 window.addEventListener('load', () => {
   if (typeof openChatScreen === 'function') {
     const originalOpenChat = openChatScreen;
@@ -288,7 +297,9 @@ window.addEventListener('load', () => {
       if (typeof myId !== 'undefined') {
         saveActiveSession(myId, peerId);
       }
-      // Load only THIS peer's transcript into the chat panel
+      // Always rebuild the panel from the saved transcript for this peer —
+      // never append on top of whatever bubbles are already sitting in the DOM.
+      resetMessagesArea();
       loadPersistedChatHistory(peerId);
     };
   }
