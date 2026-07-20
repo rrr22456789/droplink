@@ -1219,6 +1219,7 @@ function sendFile(file) {
     if (offset >= file.size) {
       conn.send(JSON.stringify({ type: 'file-done', fileId }));
       markTransferDone(fileId);
+      window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id: bubbleId, name: file.name, size: file.size, isMine: true, type: 'file', peerId: conn ? conn.peer : null } }));
       return;
     }
     const slice = file.slice(offset, offset + CHUNK_SIZE);
@@ -1274,6 +1275,7 @@ function finalizeFile(fileId) {
   updateFileBubbleProgress('file-' + fileId, 100);
   showDownloadBtn('file-' + fileId, url, f.name);
   showToast('📥 ' + f.name + ' received!', 'success');
+  window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id: 'file-' + fileId, name: f.name, size: f.size, isMine: false, type: 'file', peerId: conn ? conn.peer : null } }));
   delete pendingFiles[fileId];
   delete activeTransfers[fileId];
 }
@@ -1304,23 +1306,21 @@ function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false, fileI
   wrap.className = 'bubble-wrap ' + (isMine ? 'mine' : 'theirs');
   wrap.id = 'wrap-' + id;
 
+  // Only live (non-history) transfers get a cancel/decline control and a progress bar —
+  // a history entry only ever exists for a transfer that already finished successfully.
   const cancelBtn = (!isHistoryLoad && fileId)
     ? `<button class="cancel-transfer-btn" id="cancel-${id}" onclick="${isMine ? 'cancelSend' : 'cancelReceive'}('${fileId}')">✕ ${isMine ? 'Cancel' : 'Decline'}</button>`
     : '';
+  const progressHtml = isHistoryLoad
+    ? ''
+    : `<div class="progress-bar" id="progwrap-${id}"><div class="progress-fill" id="prog-${id}" style="width:0%"></div></div>`;
+  const statusText = isHistoryLoad
+    ? (isMine ? '✅ Sent' : '✅ Received')
+    : (isMine ? '↑ Sending' : '↓ Receiving');
 
-  wrap.innerHTML = `<div class="file-bubble ${isMine ? 'mine' : ''}"><div class="file-icon-wrap">${getFileEmoji(name)}</div><div class="file-meta"><div class="file-name">${escHtml(name)}</div><div class="file-size" id="size-${id}">${fmtSize(size)} ${isMine ? '↑ Sending' : '↓ Receiving'}</div><div class="progress-bar" id="progwrap-${id}"><div class="progress-fill" id="prog-${id}" style="width:0%"></div></div></div><div class="file-actions" id="actions-${id}">${cancelBtn}<div id="dl-${id}"></div></div></div><div class="bubble-time">${time}</div>`;
+  wrap.innerHTML = `<div class="file-bubble ${isMine ? 'mine' : ''}"><div class="file-icon-wrap">${getFileEmoji(name)}</div><div class="file-meta"><div class="file-name">${escHtml(name)}</div><div class="file-size" id="size-${id}">${fmtSize(size)} ${statusText}</div>${progressHtml}</div><div class="file-actions" id="actions-${id}">${cancelBtn}<div id="dl-${id}"></div></div></div><div class="bubble-time">${time}</div>`;
   area.appendChild(wrap);
   area.scrollTop = area.scrollHeight;
-
-  if (isHistoryLoad && isMine) {
-    updateFileBubbleProgress(id, 100);
-    const sizeEl = document.getElementById('size-' + id);
-    if (sizeEl) sizeEl.textContent = fmtSize(size) + ' ✅ Done';
-  }
-
-  if (!isHistoryLoad) {
-    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id, name, size, isMine, type: 'file', peerId: conn ? conn.peer : null } }));
-  }
 }
 function updateFileBubbleProgress(id, pct) { const el = document.getElementById('prog-' + id); if (el) el.style.width = pct + '%'; }
 
