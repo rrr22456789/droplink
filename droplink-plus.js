@@ -1,6 +1,6 @@
 /**
  * DropLink Plus Extension
- * Fixed: Persistent Anti-Refresh Storage for Chats & QR Auto-Pipeline Initialization
+ * QR auto-pipeline + per-peer persistent chat history + recent chats list
  */
 
 // 1. DYNAMIC QR CODE LIBRARY INJECTION
@@ -15,11 +15,12 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   setupQRUI();
+  renderRecentChats();
 });
 
 // 2. QR MODULE INTERACTION WRAPPER
 function setupQRUI() {
-  const cardLabel = document.querySelector('.card-label'); 
+  const cardLabel = document.querySelector('.card-label');
   if (!cardLabel) return;
 
   const card = cardLabel.parentElement;
@@ -55,7 +56,7 @@ function setupQRUI() {
 
   qrWrapper.appendChild(qrContainer);
   qrWrapper.appendChild(qrText);
-  
+
   card.insertBefore(qrWrapper, copyRow);
 
   if (copyRow) {
@@ -73,7 +74,7 @@ function generateQRCode(roomCode) {
   const qrContainer = document.getElementById('qrcode');
   if (!qrContainer) return;
 
-  qrContainer.innerHTML = ""; 
+  qrContainer.innerHTML = "";
 
   const connectionURL = `${window.location.origin}${window.location.pathname}?join=${roomCode}`;
 
@@ -104,42 +105,133 @@ function toggleQRDisplay() {
   }
 }
 
-// 3. PERSISTENT STORAGE CHAT TRACKING PATTERN
+// 3. PER-PEER PERSISTENT CHAT HISTORY
+// Each conversation is stored under its own key, keyed by the *other* peer's
+// code, so History for peer A never leaks into a chat with peer B — and since
+// everything lives in this browser's own localStorage, one person can never
+// see another person's conversations either.
+function chatKey(peerId) { return 'droplink_chat:' + peerId; }
+
 window.addEventListener('messageSaved', (e) => {
   const data = e.detail;
-  let history = [];
-  try {
-    history = JSON.parse(localStorage.getItem('droplink_chat_history')) || [];
-  } catch(err) { history = []; }
+  const peerId = data.peerId;
+  if (!peerId) return;
 
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(chatKey(peerId))) || []; } catch (err) { history = []; }
   history.push(data);
-  localStorage.setItem('droplink_chat_history', JSON.stringify(history));
+  if (history.length > 300) history = history.slice(-300); // keep storage bounded
+  localStorage.setItem(chatKey(peerId), JSON.stringify(history));
+
+  updateContact(peerId, data);
 });
 
-function loadPersistedChatHistory() {
+function loadPersistedChatHistory(peerId) {
+  if (!peerId) return;
   let history = [];
-  try {
-    history = JSON.parse(localStorage.getItem('droplink_chat_history')) || [];
-  } catch(err) { history = []; }
-
+  try { history = JSON.parse(localStorage.getItem(chatKey(peerId))) || []; } catch (err) { history = []; }
   if (history.length === 0) return;
 
-  console.log("Restoring Chat Log Stream... Found elements count:", history.length);
-  
   history.forEach(msg => {
     if (msg.type === 'text') {
-      if (typeof addTextBubble === 'function') {
-        addTextBubble(msg.text, msg.isMine, true);
-      }
+      if (typeof addTextBubble === 'function') addTextBubble(msg.text, msg.isMine, true);
     } else if (msg.type === 'file') {
-      if (typeof addFileBubble === 'function') {
-        addFileBubble(msg.id, msg.name, msg.size, msg.isMine, null, true);
-      }
+      if (typeof addFileBubble === 'function') addFileBubble(msg.id, msg.name, msg.size, msg.isMine, null, true);
     }
   });
 }
 
-// 4. SECURE RECOVERY ENGINE
+// 4. RECENT CHATS INDEX (shown on the home screen)
+function getContacts() {
+  try { return JSON.parse(localStorage.getItem('droplink_contacts')) || {}; } catch (err) { return {}; }
+}
+function setContacts(contacts) {
+  localStorage.setItem('droplink_contacts', JSON.stringify(contacts));
+}
+
+function updateContact(peerId, data) {
+  const contacts = getContacts();
+  const preview = data.type === 'file' ? ('📁 ' + data.name) : data.text;
+  contacts[peerId] = {
+    peerId,
+    preview: (preview || '').slice(0, 60),
+    mine: !!data.isMine,
+    time: Date.now()
+  };
+  setContacts(contacts);
+  renderRecentChats();
+}
+
+function deleteConversation(peerId, evt) {
+  if (evt) evt.stopPropagation();
+  localStorage.removeItem(chatKey(peerId));
+  const contacts = getContacts();
+  delete contacts[peerId];
+  setContacts(contacts);
+  renderRecentChats();
+}
+window.deleteConversation = deleteConversation;
+
+function timeAgo(ts) {
+  const diff = Math.max(0, Date.now() - ts);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'now';
+  if (min < 60) return min + 'm';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + 'h';
+  const day = Math.floor(hr / 24);
+  if (day < 7) return day + 'd';
+  return new Date(ts).toLocaleDateString();
+}
+
+function renderRecentChats() {
+  const section = document.getElementById('recent-section');
+  const list = document.getElementById('recent-list');
+  if (!section || !list) return;
+
+  const contacts = Object.values(getContacts()).sort((a, b) => b.time - a.time);
+
+  if (contacts.length === 0) {
+    section.classList.remove('has-items');
+    list.innerHTML = '';
+    return;
+  }
+
+  section.classList.add('has-items');
+  list.innerHTML = contacts.map(c => {
+    const shortId = c.peerId.slice(0, 8);
+    const prefix = c.mine ? 'You: ' : '';
+    return `
+      <div class="recent-item" onclick="resumeChat('${c.peerId}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0">
+        <div class="recent-avatar">${shortId[0] || '?'}</div>
+        <div class="recent-meta">
+          <div class="recent-id">${shortId}</div>
+          <div class="recent-preview">${escapeHtml(prefix + (c.preview || ''))}</div>
+        </div>
+        <div class="recent-time">${timeAgo(c.time)}</div>
+        <div class="recent-delete" onclick="deleteConversation('${c.peerId}', event)" title="Remove from history" aria-label="Remove conversation">✕</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function resumeChat(peerId) {
+  const joinBtn = document.getElementById('join-btn');
+  if (joinBtn && joinBtn.disabled) {
+    if (typeof showToast === 'function') showToast('Still getting ready — try again in a second', 'error');
+    return;
+  }
+  const joinInput = document.getElementById('join-input');
+  if (joinInput) joinInput.value = peerId;
+  if (typeof joinPeer === 'function') joinPeer(peerId);
+}
+window.resumeChat = resumeChat;
+
+// 5. SESSION RECOVERY (auto-reconnect after a refresh)
 function saveActiveSession(peerId, targetPeerId) {
   localStorage.setItem('droplink_my_id', peerId);
   if (targetPeerId) {
@@ -148,8 +240,9 @@ function saveActiveSession(peerId, targetPeerId) {
 }
 
 function clearSession() {
+  // Only clears the "auto-resume on refresh" pointer — conversation history
+  // and the recent-chats list are kept so past chats stay browsable from home.
   localStorage.removeItem('droplink_target_id');
-  localStorage.removeItem('droplink_chat_history'); // Wipe memory purely on direct disconnection click
 }
 
 function runSessionRecoveryPipeline() {
@@ -158,7 +251,7 @@ function runSessionRecoveryPipeline() {
 
   if (scanJoinCode) {
     window.history.replaceState({}, document.title, window.location.pathname);
-    
+
     const joinInput = document.getElementById('join-input');
     if (joinInput) {
       joinInput.value = scanJoinCode;
@@ -176,12 +269,12 @@ function runSessionRecoveryPipeline() {
   }
 }
 
-// 5. INTERCEPTION EVENTS & SYNC LIFECYCLE HOOKS
+// 6. INTERCEPTION EVENTS & SYNC LIFECYCLE HOOKS
 window.addEventListener('peerReady', (e) => {
   const localizedMyId = e.detail.myId;
   localStorage.setItem('droplink_my_id', localizedMyId);
   generateQRCode(localizedMyId);
-  
+
   setTimeout(() => {
     runSessionRecoveryPipeline();
   }, 300);
@@ -195,8 +288,8 @@ window.addEventListener('load', () => {
       if (typeof myId !== 'undefined') {
         saveActiveSession(myId, peerId);
       }
-      // Re-render local log instances immediately inside chat UI panels
-      loadPersistedChatHistory();
+      // Load only THIS peer's transcript into the chat panel
+      loadPersistedChatHistory(peerId);
     };
   }
 
@@ -205,6 +298,7 @@ window.addEventListener('load', () => {
     window.disconnectPeer = function() {
       clearSession();
       originalDisconnect();
+      renderRecentChats();
     };
   }
 });
