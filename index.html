@@ -395,6 +395,106 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
+    /* ── RECENT CHATS (home screen) ── */
+    .recent-section {
+      width: 100%;
+      max-width: 780px;
+      display: none;
+      animation: fadeUp 0.8s 0.05s ease both;
+    }
+    .recent-section.has-items { display: block; }
+    .recent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .recent-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: rgba(var(--panel-rgb), 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      text-align: left;
+    }
+    .recent-item:hover { border-color: rgba(0,229,255,0.35); transform: translateY(-1px); box-shadow: var(--shadow-soft); }
+    .recent-avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent3), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .recent-meta { flex: 1; min-width: 0; }
+    .recent-id {
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+    }
+    .recent-preview {
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+    .recent-time {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.66rem;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .recent-delete {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: all 0.2s;
+      font-size: 0.75rem;
+    }
+    .recent-item:hover .recent-delete { opacity: 1; }
+    .recent-delete:hover { border-color: var(--accent2); color: var(--accent2); background: rgba(255,107,53,0.08); }
+
+    /* ── MOTION ── */
+    .screen.active { animation: screenIn 0.4s ease both; }
+    @keyframes screenIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .recent-item:focus-visible,
+    .pill-icon-btn:focus-visible,
+    .btn:focus-visible,
+    .attach-btn:focus-visible,
+    .send-btn:focus-visible,
+    .join-input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
     /* ── CHAT SCREEN ── */
     /* When chat is active it becomes a fixed, full-viewport panel of its own.
        This guarantees the floating pill never scrolls with content, and the
@@ -507,6 +607,11 @@
       flex-direction: column;
       max-width: 72%;
       gap: 4px;
+      animation: bubbleIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    @keyframes bubbleIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
     .bubble-wrap.mine { align-self: flex-end; align-items: flex-end; }
     .bubble-wrap.theirs { align-self: flex-start; align-items: flex-start; }
@@ -628,20 +733,38 @@
       z-index: 20;
     }
 
-    .drop-zone {
-      border: 2px dashed var(--border);
-      border-radius: 16px;
-      padding: 12px 16px;
-      text-align: center;
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-bottom: 10px;
-      transition: all 0.2s;
-      cursor: pointer;
-      display: none;
+    .drag-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(var(--panel-rgb), 0.82);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
     }
-    .drop-zone.visible { display: block; }
-    .drop-zone.dragover { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.05); }
+    .drag-overlay.active { opacity: 1; pointer-events: auto; }
+    .drag-overlay-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 36px 48px;
+      border: 2px dashed var(--accent);
+      border-radius: 24px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.95rem;
+      background: rgba(0,229,255,0.06);
+      transform: scale(0.96);
+      transition: transform 0.2s ease;
+    }
+    .drag-overlay.active .drag-overlay-card { transform: scale(1); }
+    .drag-overlay-icon { font-size: 2.2rem; }
 
     .input-row {
       display: flex;
@@ -782,6 +905,11 @@
       <p>Instant peer-to-peer transfer. No uploads, no servers, no size limits. Just share your code.</p>
     </div>
 
+    <div class="recent-section" id="recent-section">
+      <div class="divider">RECENT CHATS</div>
+      <div class="recent-list" id="recent-list"></div>
+    </div>
+
     <div class="cards-row">
       <div class="card">
         <div class="card-label">01 — Your Room Code</div>
@@ -838,7 +966,7 @@
         </div>
       </div>
       <div class="topbar-actions">
-        <button class="pill-icon-btn" onclick="toggleDropZone()" title="Attach file" aria-label="Attach file">📎</button>
+        <button class="pill-icon-btn" onclick="document.getElementById('file-input').click()" title="Attach file" aria-label="Attach file">📎</button>
         <button class="pill-icon-btn theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark or light mode">
           <span class="icon-moon">🌙</span><span class="icon-sun">☀️</span>
         </button>
@@ -853,13 +981,14 @@
       </div>
     </div>
 
-    <div class="input-area">
-      <div class="drop-zone" id="drop-zone"
-        ondragover="handleDragOver(event)"
-        ondragleave="handleDragLeave(event)"
-        ondrop="handleDrop(event)">
-        🗂️ Drop files here to send instantly
+    <div class="drag-overlay" id="drag-overlay">
+      <div class="drag-overlay-card">
+        <div class="drag-overlay-icon">🗂️</div>
+        <div>Drop anywhere to send</div>
       </div>
+    </div>
+
+    <div class="input-area">
       <div class="input-row">
         <div class="attach-btn" onclick="document.getElementById('file-input').click()">📎</div>
         <input type="file" id="file-input" multiple onchange="sendFiles(this.files)" />
@@ -944,8 +1073,8 @@ function initPeer() {
 // ───────────────────────────────────────────────
 // CONNECT
 // ───────────────────────────────────────────────
-function joinPeer() {
-  const code = document.getElementById('join-input').value.trim().toUpperCase();
+function joinPeer(codeOverride) {
+  const code = (codeOverride || document.getElementById('join-input').value.trim()).toUpperCase();
   if (!code || code.length < 4) { showToast('Enter a valid code', 'error'); return; }
   if (code === myId) { showToast("That's your own code!", 'error'); return; }
   showConnecting();
@@ -1033,7 +1162,7 @@ function addTextBubble(text, isMine, isHistoryLoad = false) {
 
   // Track event bubble up into the LocalStorage synchronization engine
   if (!isHistoryLoad) {
-    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { text, isMine, type: 'text' } }));
+    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { text, isMine, type: 'text', peerId: conn ? conn.peer : null } }));
   }
 }
 
@@ -1130,7 +1259,7 @@ function addFileBubble(id, name, size, isMine, url, isHistoryLoad = false) {
   }
 
   if (!isHistoryLoad) {
-    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id, name, size, isMine, type: 'file' } }));
+    window.dispatchEvent(new CustomEvent('messageSaved', { detail: { id, name, size, isMine, type: 'file', peerId: conn ? conn.peer : null } }));
   }
 }
 function updateFileBubbleProgress(id, pct) { const el = document.getElementById('prog-' + id); if (el) el.style.width = pct + '%'; }
@@ -1185,10 +1314,36 @@ function toggleTheme() {
   const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
   applyTheme(saved || (prefersLight ? 'light' : 'dark'));
 })();
-function toggleDropZone() { document.getElementById('drop-zone').classList.toggle('visible'); }
-function handleDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
-function handleDragLeave(e) { document.getElementById('drop-zone').classList.remove('dragover'); }
-function handleDrop(e) { e.preventDefault(); document.getElementById('drop-zone').classList.remove('dragover'); sendFiles(e.dataTransfer.files); }
+// ───────────────────────────────────────────────
+// DRAG & DROP — works anywhere over the chat, no need to open a box first
+// ───────────────────────────────────────────────
+let dragCounter = 0;
+function initDragAndDrop() {
+  const chatScreen = document.getElementById('chat-screen');
+  const overlay = document.getElementById('drag-overlay');
+  if (!chatScreen || !overlay) return;
+
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    chatScreen.addEventListener(evt, e => e.preventDefault());
+  });
+
+  chatScreen.addEventListener('dragenter', e => {
+    if (!e.dataTransfer || !e.dataTransfer.types.includes('Files') || !conn) return;
+    dragCounter++;
+    overlay.classList.add('active');
+  });
+
+  chatScreen.addEventListener('dragleave', () => {
+    dragCounter = Math.max(0, dragCounter - 1);
+    if (dragCounter === 0) overlay.classList.remove('active');
+  });
+
+  chatScreen.addEventListener('drop', e => {
+    dragCounter = 0;
+    overlay.classList.remove('active');
+    if (e.dataTransfer.files && e.dataTransfer.files.length) sendFiles(e.dataTransfer.files);
+  });
+}
 function copyCode() { navigator.clipboard.writeText(myId).then(() => showToast('✅ Code copied!', 'success')); }
 function shareCode() { navigator.share({ title: 'DropLink', text: 'Join my session: ' + myId, url: location.href }); }
 function setStatus(state, text) { document.getElementById('status-dot').className = 'status-dot ' + state; document.getElementById('status-text').textContent = text; }
@@ -1204,6 +1359,7 @@ function showToast(msg, type='') {
 }
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 window.addEventListener('load', initPeer);
+window.addEventListener('load', initDragAndDrop);
 </script>
 
 <script src="droplink-plus.js"></script>
